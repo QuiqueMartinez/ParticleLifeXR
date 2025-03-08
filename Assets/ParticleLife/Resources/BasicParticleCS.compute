@@ -1,0 +1,311 @@
+#include "AuxMethods.compute"
+
+RWStructuredBuffer<float3> positions; // Particle positions
+RWStructuredBuffer<float3> velocities; // Particle velocities
+RWStructuredBuffer<float3> deltas; // Force deltas
+
+RWStructuredBuffer<int> hashes; // Hash table (cell indices)
+RWStructuredBuffer<int> sorted; // Indices sorted by position into cells
+RWStructuredBuffer<int3> stack; // Cell metadata: start, amount, counter
+
+// Environment
+cbuffer simulationParameters
+{
+    float deltaTime;   // Time step
+    float cubeSize;    // Simulation volume per dimension
+    int numCells;      // Number of cells per dimension (hashing)
+    int numParticles;
+    float friction;
+    float fastSigmoidAttenuation;
+
+};
+
+
+
+
+RWStructuredBuffer<int> debugResults;
+
+// Interactions
+struct InteractionParameters
+{
+    float minDistance;
+    float radius;
+    float maxDistance;
+
+    float originForce;
+    float radiusForce;
+};
+StructuredBuffer<InteractionParameters> interactionMatrix;
+
+
+#pragma kernel Hashing
+[numthreads(1024, 1, 1)]
+void Hashing(uint3 id : SV_DispatchThreadID)
+{
+    
+    
+    
+    if (id.x >= numParticles)
+        return;
+  
+
+
+    // Calculate cell index
+    uint cellPerSide = (uint) numCells;
+    
+    float cellSize = cubeSize / cellPerSide;
+        // Get particle position
+    float3 pos = positions[id.x]%cubeSize;
+    
+    int3 cellIndex = (int3) floor(pos  / cellSize) % cellPerSide;
+    
+
+    // Calculate the hash (1D index)
+    int hash = cellIndex.x + cellPerSide * (cellIndex.y + cellPerSide * cellIndex.z);
+
+    // Store the hash
+    hashes[id.x] = hash;
+  
+      
+    // Atomically increment the particle count for this cell
+    InterlockedAdd(stack[hash].z, 1); // stack.z is the counter
+    InterlockedAdd(stack[hash].y, 1); // stack.y does not vary
+}
+
+
+
+#pragma kernel Sorting
+[numthreads(1024, 1, 1)]
+void Sorting(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numParticles)
+        return;
+    
+    // Get the cell corresponding to this particle
+    int cellId = hashes[id.x];
+
+    // Calculate the insertion index within the sorted array
+    int index;
+    InterlockedAdd(stack[cellId].z, -1, index); // Decrement counter to get unique index
+
+    // Adjust index relative to startIndex
+    index += stack[cellId].x -1; // stack.x is the startIndex
+
+    // Store the particle index in the sorted array
+    sorted[index] = id.x;
+}
+
+
+#pragma kernel CalculateInteractions
+[numthreads(1024, 1, 1)]
+void CalculateInteractions(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numParticles)
+        return;
+
+    int particleIndex = id.x;
+
+    float3 delta = float3(0.0, 0.0, 0.0);
+    
+    
+    
+    float cellSize = cubeSize / numCells;
+    
+    float3 position = (positions[particleIndex] % cellSize) + int3(cellSize, cellSize, cellSize);
+    
+    uint uNumCells = (uint) numCells;
+
+    // 
+    int currentHash = hashes[particleIndex];
+    int typeA = id.x % 5;
+    NeighbourData adjacent = GetNeighbours(currentHash, numCells);
+    
+    
+    for (int i = 0; i < 27;i++)
+    {
+        int startIdx = stack[adjacent.values[i].x].x;
+        int endIdx = startIdx + stack[adjacent.values[i].x].y;
+        
+        for (int j = startIdx; j < endIdx; j++)
+        {
+            InterlockedAdd(debugResults[1], 1); // evaluatedInteractions
+                    //delta -= float3(0.001, 0, 0);
+            int neighborIndex = sorted[j];
+
+            if (neighborIndex == particleIndex)
+                continue;
+
+            float3 neighborPos = (positions[neighborIndex] % cellSize) + 
+            int3(adjacent.values[i].y, adjacent.values[i].z, adjacent.values[i].w) * cellSize;
+                    
+            float3 diff = (neighborPos - position) ;
+                    
+            float dist = length(diff) / cellSize;
+
+            if (dist <= 1.0 && dist > 0.0001)
+            {
+                InterlockedAdd(debugResults[2], 1); // interacting cells
+                       
+                int typeB = neighborIndex % 5;
+                InteractionParameters params = interactionMatrix[typeA * 5 + typeB];
+
+            
+                float a = 0;
+                float b = 0;
+
+                if (dist < params.minDistance)//
+                            //params.minDistance || true)
+                {
+                    a = -params.originForce / params.minDistance; //                            params.minDistance;
+                    b = params.originForce;
+
+
+                }
+                else if (dist < params.radius)
+                {
+                    a = -params.radiusForce / (params.minDistance - params.radius);
+                    b = -a * params.minDistance;
+
+                }
+                else if (dist < params.maxDistance)
+                {
+                    a = -params.radiusForce / (params.maxDistance - params.radius);
+                    b = -a * params.maxDistance;
+               
+                }
+                
+                
+                
+                float force = fastSigmoidAttenuation * (a * dist + b);
+                
+                // FastSigmoid
+                
+                force = force / (1 + abs(force));
+
+      
+            
+                delta += normalize(diff) * 2 * force;
+            }
+        }
+    }
+        
+    InterlockedAdd(debugResults[0], 1); // touchedCells
+    deltas[particleIndex] = delta;
+}
+    
+    // trim coordinates...
+    // recalculate coordinates...
+    
+    /*for (int offsetX = -1; offsetX <= 1; offsetX++)
+    {
+        for (int offsetY = -1; offsetY <= 1; offsetY++)
+        {
+            for (int offsetZ = -1; offsetZ <= 1; offsetZ++)
+            {
+                InterlockedAdd(debugResults[2], 1); //1000 * 27
+                
+                int neighborx = (posx + offsetX + numCells) % numCells;
+                int neighbory = (posy + offsetY + numCells) % numCells;
+                int neighborz = (posz + offsetZ + numCells) % numCells;
+                
+                int neighborCell = neighborx + numCells * (neighbory + numCells * neighborz);
+
+                int startIdx = stack[neighborCell].x;
+                int endIdx = startIdx + stack[neighborCell].y;
+
+
+                for (int j = startIdx; j < endIdx; j++)
+                {
+                    InterlockedAdd(debugResults[1], 1); // evaluatedInteractions
+                    //delta -= float3(0.001, 0, 0);
+                    int neighborIndex = sorted[j];
+
+                    if (neighborIndex == particleIndex)
+                        continue;
+
+                    float3 neighborPos = positions[neighborIndex];
+                    
+                    float3 diff = (neighborPos - position) % cellSize;
+                    
+                    float dist = length(diff);// / cellSize;
+
+                    if (dist <= 1.0 && dist > 0.0001)
+                    {
+                  
+                       
+                        int typeB = neighborIndex % 5;
+                        InteractionParameters params = interactionMatrix[typeA * 5 + typeB];
+
+            
+                        float a = 0;
+                        float b = 0;
+
+                        if (dist < params.minDistance)//
+                            //params.minDistance || true)
+                        {
+                          a = -params.originForce / params.minDistance; //                            params.minDistance;
+                          b = params.originForce;
+
+
+                        }
+                       else if (dist < params.radius)
+                        {
+                            a = -params.radiusForce / (params.minDistance - params.radius);
+                            b = -a * params.minDistance;
+
+                        }
+                        else if (dist < params.maxDistance)
+                        {
+                            a = -params.radiusForce / (params.maxDistance - params.radius);
+                            b = -a * params.maxDistance;
+               
+                        }
+                        float force = a * dist + b;
+                        //int a;
+      
+            
+                        delta += normalize(diff) * force;
+                    }
+                }
+            }
+        }
+    }*/
+
+
+#pragma kernel ApplyDeltas
+[numthreads(1024, 1, 1)]
+void ApplyDeltas(uint3 id : SV_DispatchThreadID)
+{
+  /// Paso 1: Obtener las posiciones y las velocidades actuales
+    float3 position_old = positions[id.x]; // La posicion anterior de la particula
+    float3 velocity = velocities[id.x]; // La velocidad actual de la particula
+    float3 delta = deltas[id.x]; // La fuerza/delta calculada (aceleracion * masa)
+
+    // Paso 2: Calcular la nueva posicion usando la formula de Verlet
+    // Asumimos que DeltaT es un valor constante definido en el shader
+    float3 new_position = position_old + velocity * deltaTime + 0.5 * delta * (deltaTime * deltaTime); //+ int3(0.01, 0, 0);
+
+    // Paso 3: Calcular la nueva velocidad (Verlet puede aproximarse a esta forma)
+    // Aqui actualizamos la velocidad solo si es necesario, o simplemente calculamos la nueva
+    // segun la diferencia entre la nueva y vieja posicion.
+    float3 new_velocity = friction * (new_position - position_old) / deltaTime;
+
+    // Paso 4: Actualizar los buffers de posiciones y velocidades
+
+    new_position = (new_position + cubeSize) % cubeSize; //- cubeSize * 0.5;
+    
+    positions[id.x] = new_position;
+    velocities[id.x] = new_velocity;
+  
+   /// Get the particle's position
+    /*float3 pos = positions[id.x];
+
+    // Apply the position delta
+    pos += deltas[id.x] ;
+
+    // Wrap particles that go outside the simulation cube
+    pos = (pos + cubeSize * 0.5) % cubeSize    -cubeSize * 0.5;
+
+    // Update the particle's position
+    positions[id.x] = pos;*/
+}

@@ -1,0 +1,63 @@
+#pragma kernel TestGetNeighbours
+
+// Buffer para almacenar las celdas adyacentes
+RWStructuredBuffer<int> AdjacentCells;
+int index;
+int side;
+
+// Funcion para calcular las celdas adyacentes
+struct NeighbourData
+{
+    int4 values[27];
+};
+
+NeighbourData GetNeighbours(int index, int side)
+{
+    NeighbourData result;
+    
+    // Convertir indice 1D a 3D
+    int z = index / (side * side);
+    int y = (index % (side * side)) / side;
+    int x = index % side;
+    
+    int count = 0;
+    for (int dz = -1; dz <= 1; dz++)
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int nx = (x + side + dx) % side;
+                int ny = (y + side + dy) % side;
+                int nz = (z + side + dz) % side;
+                
+                result.values[count] = int4(
+                nz * side * side + ny * side + nx,
+                dx + 1,
+                dy + 1,
+                dz + 1);
+                
+
+                count++;
+            }
+        }
+    }
+    
+    return result;
+}
+
+// Kernel de prueba
+[numthreads(1, 1, 1)]
+void TestGetNeighbours(uint3 id : SV_DispatchThreadID)
+{
+    // Definir el indice de la celda central y el tamanno del lado del cubo
+
+
+    
+    // Llamar a la funcion para calcular las celdas adyacentes
+    int4 neighbours[27] = GetNeighbours(index, side);
+    for (int j = 0; j < 27; j++)
+    {
+        AdjacentCells[j] = neighbours[j].x;
+    }
+}
