@@ -12,22 +12,20 @@ public class HashingTests
     private ComputeBuffer stackBuffer;
     private int kernelHandle;
 
-    // Parámetros de simulación
+    // Simulation parameters
     private const float CubeSize = 8.0f;
     private const int NumCells = 4;
 
     [SetUp]
     public void Setup()
     {
-        // Cargar el compute shader (asegúrate de que esté en tu proyecto con el nombre correcto)
-        computeShader = Resources.Load<ComputeShader>("BasicParticleCS"); // Ajusta el nombre/ruta
+        computeShader = Resources.Load<ComputeShader>("BasicParticleCS");
         kernelHandle = computeShader.FindKernel("Hashing");
     }
 
     [TearDown]
     public void Teardown()
     {
-        // Liberar buffers
         positionsBuffer?.Release();
         hashesBuffer?.Release();
         stackBuffer?.Release();
@@ -103,46 +101,39 @@ public class HashingTests
 
     public IEnumerator TestPositionBatch(Vector3[] positions, int[] expectedStack)
     {
-        // Preparar datos de prueba (posiciones de partículas)
 
         int NumParticles = positions.Length;
 
-        positionsBuffer = new ComputeBuffer(NumParticles, sizeof(float) * 3); // float3
-        hashesBuffer = new ComputeBuffer(NumParticles, sizeof(int)); // int
-                                                                     // Inicializar buffers
-
-        stackBuffer = new ComputeBuffer(NumCells * NumCells * NumCells, sizeof(int) * 3); // int3
+        positionsBuffer = new ComputeBuffer(NumParticles, sizeof(float) * 3); 
+        hashesBuffer = new ComputeBuffer(NumParticles, sizeof(int)); 
+        stackBuffer = new ComputeBuffer(NumCells * NumCells * NumCells, sizeof(int) * 3); 
 
         Assert.AreEqual(expectedStack.Length / 3, stackBuffer.count , "Expected stack size is incorrect");
 
-        // Configurar parámetros de simulación en el cbuffer
+        // Cunfigure simulation parameters
         computeShader.SetFloat("cubeSize", CubeSize);
         computeShader.SetInt("numCells", NumCells);
         computeShader.SetInt("numParticles", NumParticles);
 
-        // Vincular buffers al compute shader
         computeShader.SetBuffer(kernelHandle, "positions", positionsBuffer);
         computeShader.SetBuffer(kernelHandle, "hashes", hashesBuffer);
         computeShader.SetBuffer(kernelHandle, "stack", stackBuffer);
 
-        // Subir datos al buffer
         positionsBuffer.SetData(positions);
 
-        // Inicializar stack con ceros
         int[] stackData = new int[NumCells * NumCells * NumCells * 3];
         stackBuffer.SetData(stackData);
 
-        // Ejecutar el compute shader
+        // Run kernel
         computeShader.Dispatch(kernelHandle, Mathf.CeilToInt(NumParticles / 1024f), 1, 1);
 
-        // Obtener resultados
+        // Results
         int[] hashes = new int[NumParticles];
         hashesBuffer.GetData(hashes);
 
         int[] stack = new int[NumCells * NumCells * NumCells * 3];
         stackBuffer.GetData(stack);
 
-        // Verificar resultados
         float cellSize = CubeSize / NumCells;
         for (int i = 0; i < NumParticles; i++)
         {
@@ -154,13 +145,13 @@ public class HashingTests
             );
             int expectedHash = cellIndex.x + NumCells * (cellIndex.y + NumCells * cellIndex.z);
 
-            Assert.AreEqual(expectedHash, hashes[i], $"Hash incorrecto para la partícula {i}");
+            Assert.AreEqual(expectedHash, hashes[i], $"Incorrect hash for particle {i}");
         }
 
 
         for (int i = 0; i < stack.Length; i++)
         {
-            Assert.IsTrue(stack[i] == expectedStack[i], $"Contador inválido en la celda {i} : {stack[i]}");
+            Assert.IsTrue(stack[i] == expectedStack[i], $"Invalid index for particle{i} : {stack[i]}");
         }
 
         CountAllParticles(stack, NumParticles);
@@ -168,7 +159,6 @@ public class HashingTests
         yield return null;
     }
 
-    // Estructura auxiliar para replicar int3
     private struct int3
     {
         public int x, y, z;

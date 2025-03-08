@@ -184,11 +184,11 @@ public class ParticleLifeController : MonoBehaviour
 
         int[] datain = new int[totalCells * 3];
         stackBuffer.GetData(datain);
-        SetCellRanges(ref datain);
+        RegenerateStack(ref datain);
         stackBuffer.SetData(datain);
 
         interactionShader.Dispatch(SortingKernelIndex, (particleCount / 1024) + 1, 1, 1);
-        interactionShader.Dispatch(InteractionKernelIndex, (particleCount / 1024) + 1, 1, 1);
+        interactionShader.Dispatch(InteractionKernelIndex, (particleCount / 512) + 1, 1, 1);
         interactionShader.Dispatch(ApplyDeltasKernelIndex, (particleCount / 1024) + 1, 1, 1);
 
         int[] results = new int[3];
@@ -199,7 +199,7 @@ public class ParticleLifeController : MonoBehaviour
 
     }
 
-    public static void SetCellRanges(ref int[] data)
+    public static void RegenerateStack(ref int[] data)
     {
         int accumulator = 0;
         for (int i = 0; i < data.Length; i = i + 3)

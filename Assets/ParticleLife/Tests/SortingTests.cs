@@ -13,22 +13,19 @@ public class SortingTests
     private ComputeBuffer stackBuffer;
     private int kernelHandle;
 
-    // Parámetros de simulación
     private const float CubeSize = 8.0f;
     private const int NumCells = 4;
 
     [SetUp]
     public void Setup()
     {
-        // Cargar el compute shader (asegúrate de que esté en tu proyecto con el nombre correcto)
-        computeShader = Resources.Load<ComputeShader>("BasicParticleCS"); // Ajusta el nombre/ruta
+        computeShader = Resources.Load<ComputeShader>("BasicParticleCS");
         kernelHandle = computeShader.FindKernel("Sorting");
     }
 
     [TearDown]
     public void Teardown()
     {
-        // Liberar buffers
         sortedBuffer?.Release();
         hashesBuffer?.Release();
         stackBuffer?.Release();
@@ -40,9 +37,9 @@ public class SortingTests
         const int NumParticles = 3;
         const int StackSize = 6;
 
-        hashesBuffer = new ComputeBuffer(NumParticles, sizeof(int)); // int
-        sortedBuffer = new ComputeBuffer(NumParticles, sizeof(int)); // int
-        stackBuffer = new ComputeBuffer(NumCells * NumCells * NumCells, sizeof(int) * 3); // int3
+        hashesBuffer = new ComputeBuffer(NumParticles, sizeof(int));
+        sortedBuffer = new ComputeBuffer(NumParticles, sizeof(int)); 
+        stackBuffer = new ComputeBuffer(NumCells * NumCells * NumCells, sizeof(int) * 3); 
 
 
         computeShader.SetFloat("cubeSize", CubeSize);
@@ -71,8 +68,6 @@ public class SortingTests
 
         hashesBuffer.SetData(hashes);
         stackBuffer.SetData(stack);
-
-
         computeShader.Dispatch(kernelHandle, Mathf.CeilToInt(NumParticles / 1024f), 1, 1);
 
         sortedBuffer.GetData(sorted);
